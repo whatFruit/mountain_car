@@ -16,7 +16,7 @@ SCENE_HEIGHT = 600
 PYMUNK_GRAVITY = -981.0
 B_DEGREE = 2
 B_SMOOTHNESS = 10
-CONTROL_RADIUS = 3
+CONTROL_RADIUS = 8
 DT = 1.0/60.0 # define physics time step
 DT_MS = DT * 1000 # time step in milliseconds
 
@@ -65,6 +65,8 @@ def munkFlipY(y):
 
 class gameManger:
 
+    isMouseDown = False
+
     def __init__(self):
         ''' Initialize pygame instance'''
         pygame.init()
@@ -82,6 +84,7 @@ class gameManger:
         ### Curved Line
         self.cPoints = controlPoints()
 
+        self.mousePos = (0,0)
         self.coreLoop()
 
     def coreLoop(self):
@@ -92,7 +95,16 @@ class gameManger:
                 if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                     self.running = False
                 elif event.type == MOUSEBUTTONDOWN and event.button == 1:  # left mouse click
-                    self.cPoints.add(controlPoint(event.pos[X], event.pos[Y]))
+                    self.mousePos = (event.pos[X], event.pos[Y])
+                    self.cPoints.add(controlPoint(self))
+                elif event.type == MOUSEBUTTONDOWN and event.button == 2: # place a 'car':
+                    self.isMouseDown = True
+                elif event.type == MOUSEBUTTONDOWN and event.button == 3: #left mouse unclick:
+                    self.isMouseDown = True
+                elif event.type == MOUSEBUTTONUP and event.button == 3: #left mouse unclick:
+                    self.isMouseDown = False
+                elif event.type == MOUSEMOTION:
+                    self.mousePos = (event.pos[X],event.pos[Y])
             # create smoothed points if there are enough control points
             smoothPoints = None
             if len(self.cPoints.sprites()) >= 2:
@@ -107,6 +119,7 @@ class gameManger:
             self.scene.fill(THECOLORS["blue"])
 
             # draw control points:
+            self.cPoints.update()
             self.cPoints.draw(self.scene)
 
             # draw smoothed curve
@@ -132,59 +145,75 @@ class controlPoints(pygame.sprite.Group):
     def getListOfPoints(self):
 
         #create a list from all control points
-        return [point for point in self.sprites().pos]
+        return [point.pos for point in self.sprites()]
 
 class controlPoint(pygame.sprite.Sprite):
 
     SELECTED, MOUSED_OVER, NEUTRAL = 0,1,2
-    isStatic = False
-    imageSet = []
-    pos = (0,0)
+    isMousedOver = True
+    isSelected = False
 
-    def __init__(self,xPos,yPos, static = False):
+
+    def __init__(self,parentSurface, static = False):
+
+        self.parent = parentSurface
+
         #call parent class constructor
         pygame.sprite.Sprite.__init__(self)
-
-        self.update(xPos,yPos)
         self.isStatic = static #static controlPoints can't be moved
+        self.isMousedOver = True  # mouse is over point on creation
 
-        self.imageSet = self.drawImages()
-        self.image = self.imageSet[self.NEUTRAL]
-        self.rect = self.imageSet[0].get_rect()
+        self.pos = vec(self.parent.mousePos[X],self.parent.mousePos[Y])  # used for graphics
+        self.physicsPos = (self.pos[X], munkFlipY(self.pos[Y]))
 
-        self.isMousedOver = True #mouse is over point on creation
+        self.drawBuffers()
 
-    def drawImages(self):
+        self.update()
 
-        imgArray = [pygame.Surface([CONTROL_RADIUS*2,CONTROL_RADIUS*2]) for i in range(3)]
-        pygame.draw.circle(imgArray[self.SELECTED], THECOLORS["green"], self.pos, CONTROL_RADIUS + 1)
-        pygame.draw.circle(imgArray[self.MOUSED_OVER], THECOLORS["yellow"], self.pos, CONTROL_RADIUS+1)
-        pygame.draw.circle(imgArray[self.NEUTRAL], THECOLORS["orange"], self.pos, CONTROL_RADIUS+1)
+    def drawBuffers(self):
 
-        for i in range(len(imgArray)):
-            pygame.draw.circle(imgArray[i], THECOLORS["red"], self.pos, CONTROL_RADIUS)
+        self.buffers = [pygame.Surface([CONTROL_RADIUS*2,CONTROL_RADIUS*2])]*3
 
-        return imgArray
+        self.buffers[self.SELECTED] = pygame.image.load('controlPointSelected.png').convert_alpha()
 
-    def update(self, xPos, yPos, mousedOver = False, selected = False):
+        self.buffers[self.MOUSED_OVER] = pygame.image.load('controlPointMousedOver.png').convert_alpha()
 
-        # static constrol points may not be updated
-        if self.isStatic or not self.imageSet:
+        self.buffers[self.NEUTRAL] = pygame.image.load('controlPointNeautral.png').convert_alpha()
+
+        self.image = self.buffers[0]
+        self.rect = self.image.get_rect()
+
+    def update(self):
+
+        # static control points may not be updated
+        if self.isStatic:
             return
 
-        if selected:
-            self.pos = (xPos,yPos) #used for graphics
-            self.physicsPos = (self.pos[X], munkFlipY(self.pos[Y]))
-            self.image = self.imageSet[self.SELECTED]
-        elif mousedOver:
-            self.imageSet = self.imageSet[self.MOUSED_OVER]
+        if self.parent.isMouseDown == False:
+            self.isSelected = False
+
+        # test to see if contains mouse
+        if self.rect.collidepoint((self.parent.mousePos[X],self.parent.mousePos[Y])):
+            self.isMousedOver = True
+            if self.parent.isMouseDown == True:
+                self.isSelected = True
         else:
-            self.imageSet = self.imageSet[self.NEUTRAL]
+            self.isMousedOver = False
 
-        self.isSelected = selected
-        self.isMousedOver = mousedOver
+        #clear controlpoint buffer
 
-        return
+        if self.isSelected:
+            self.pos = vec(self.parent.mousePos[X],self.parent.mousePos[Y]) #used for graphics
+            self.physicsPos = (self.pos[X], munkFlipY(self.pos[Y]))
+            self.image = self.buffers[self.SELECTED]
+        elif self.isMousedOver:
+            self.image = self.buffers[self.MOUSED_OVER]
+        else:
+            self.image = self.buffers[self.NEUTRAL]
+
+        self.rect.center = self.pos
+
+
 
 def main():
 
